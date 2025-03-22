@@ -1,0 +1,148 @@
+# login to azure
+# az login
+
+#  check what account you ar using
+# az account show
+
+# Login and set subscription
+# echo "Checking Azure login status..."
+# az account show || az login
+
+
+# Load environment variables from .env file
+if [ -f .env ]; then
+    echo "Loading configuration from .env file..."
+    export $(cat .env | grep -v '#' | xargs)
+else
+    echo "Error: .env file not found!"
+    exit 1
+fi
+
+# Validate required variables
+if [ -z "$GITHUB_PAT" ]; then
+    echo "Error: Missing required environment variables!"
+    echo "Please ensure GITHUB_PAT is set in .env file"
+    exit 1
+fi
+
+# Azure configuration
+RESOURCE_GROUP="gh-runners-rg"
+LOCATION="uksouth"
+VMSS_NAME="gh-runner-vmss"
+VM_NAME="gh-runner-vm"
+VM_SIZE="Standard_B2s"
+VM_IMAGE="Ubuntu2204"
+ADMIN_USERNAME="ghrunner"
+SUBNET_ID="/subscriptions/8e88c488-1596-4d79-8d3f-f9d16aa345ad/resourceGroups/vnet-rg/providers/Microsoft.Network/virtualNetworks/share-vnet/subnets/gh-self-hosted-runners"
+KEY_VAULT_NAME="gh-runners-kv"
+VMSS_IMAGE="gh-runner-image-ubuntu2024"
+
+# GitHub configuration
+GITHUB_OWNER="miekki"
+GITHUB_REPO="use-self-hosted-runner"
+
+# GitHub runner configuration
+RUNNER_VERSION="2.321.0"
+RUNNER_SCRIPT_URL="https://raw.githubusercontent.com/actions/runner/main/scripts/create-latest-svc.sh"
+
+# ******************************************************************** 
+#  Below code needs to be run ones to create rg, keyvault and identity
+# 
+# # Create resource group
+# echo "Creating resource group..."
+# az group create --name $RESOURCE_GROUP --location $LOCATION
+
+# # Create key vault and set GitHub PAT
+# az keyvault create --name $KEY_VAULT_NAME --resource-group $RESOURCE_GROUP --location $LOCATION
+# az keyvault secret set --vault-name $KEY_VAULT_NAME --name GITHUBPAT --value $GITHUB_PAT
+
+# # Create user-assigned managed identity
+# echo "Creating user-assigned managed identity..."
+# az identity create \
+#     --resource-group $RESOURCE_GROUP \
+#     --name "gh-runner-identity"
+# ********************************************************************
+
+# Get the identity's principal ID and resource ID
+IDENTITY_PRINCIPAL_ID=$(az identity show --resource-group $RESOURCE_GROUP --name "gh-runner-identity" --query principalId --output tsv)
+IDENTITY_RESOURCE_ID=$(az identity show --resource-group $RESOURCE_GROUP --name "gh-runner-identity" --query id --output tsv)
+
+# Assign Key Vault Secrets User role to the managed identity
+echo "Assigning Key Vault Secrets User role..."
+az role assignment create \
+    --assignee-object-id $IDENTITY_PRINCIPAL_ID \
+    --assignee-principal-type "User" \
+    --role "Key Vault Secrets User" \
+    --scope /subscriptions/8e88c488-1596-4d79-8d3f-f9d16aa345ad/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.KeyVault/vaults/$KEY_VAULT_NAME
+
+az vm create \
+    --resource-group $RESOURCE_GROUP \
+    --name $VM_NAME \
+    --image $VM_IMAGE \
+    --size $VM_SIZE \
+    --admin-username $ADMIN_USERNAME \
+    --ssh-key-value ./gh_vm_ubuntu.pub \
+    --subnet "$SUBNET_ID" \
+    --custom-data ./install_packages.sh \
+    --public-ip-address "" \
+    --assign-identity $IDENTITY_RESOURCE_ID \
+    --security-type Standard
+
+
+# Update VMSS creation to use the managed identity
+echo "Creating Virtual Machine Scale Set..."
+az vmss create \
+    --resource-group $RESOURCE_GROUP \
+    --name $VMSS_NAME \
+    --image $VMSS_IMAGE \
+    --vm-sku $VM_SIZE \
+    --authentication-type SSH \
+    --ssh-key-value ./gh_vm_ubuntu.pub \
+    --admin-username $ADMIN_USERNAME \
+    --instance-count 1 \
+    --upgrade-policy-mode automatic \
+    --load-balancer "" \
+    --subnet $SUBNET_ID \
+    --tags "Purpose=GitHubRunner" \
+    --assign-identity $IDENTITY_RESOURCE_ID
+
+
+# ********************************************************************
+#  This code needs to be review still
+# Configure auto-scaling
+# echo "Setting up auto-scaling rules..."
+# az monitor autoscale create \
+#     --resource-group $RESOURCE_GROUP \
+#     --resource $VMSS_NAME \
+#     --resource-type "Microsoft.Compute/virtualMachineScaleSets" \
+#     --name "GitHubRunnerAutoscale" \
+#     --min-count 1 \
+#     --max-count 5 \
+#     --count 2
+
+# # Add scale out rule - CPU percentage > 75%
+# az monitor autoscale rule create \
+#     --resource-group $RESOURCE_GROUP \
+#     --autoscale-name "GitHubRunnerAutoscale" \
+#     --condition "Percentage CPU > 75 avg 5m" \
+#     --scale out 1
+
+# # Add scale in rule - CPU percentage < 25%
+# az monitor autoscale rule create \
+#     --resource-group $RESOURCE_GROUP \
+#     --autoscale-name "GitHubRunnerAutoscale" \
+#     --condition "Percentage CPU < 25 avg 5m" \
+#     --scale in 1
+
+# # Output the public IP addresses
+# echo "Retrieving public IP addresses..."
+# az vmss list-instance-public-ips \
+#     --resource-group $RESOURCE_GROUP \
+#     --name $VMSS_NAME
+
+echo "Deployment completed!"
+echo "Please check the GitHub Actions runners page to verify registration"
+
+
+# to generate new ssh key use below command
+# ssh-keygen -t rsa -b 4096 -f ./gh_vm_ubuntu -N ""
