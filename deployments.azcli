@@ -35,7 +35,7 @@ VM_IMAGE="Ubuntu2204"
 ADMIN_USERNAME="ghrunner"
 SUBNET_ID="/subscriptions/8e88c488-1596-4d79-8d3f-f9d16aa345ad/resourceGroups/vnet-rg/providers/Microsoft.Network/virtualNetworks/share-vnet/subnets/gh-self-hosted-runners"
 KEY_VAULT_NAME="gh-runners-kv"
-VMSS_IMAGE="gh-runner-image-ubuntu2024"
+VMSS_IMAGE="gh-runner-image-ubuntu2024_v20250322"
 
 # GitHub configuration
 GITHUB_OWNER="miekki"
