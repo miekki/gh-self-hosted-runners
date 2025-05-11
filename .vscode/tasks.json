@@ -7,7 +7,7 @@
             "type": "process",
             "args": [
                 "build",
-                "${workspaceFolder}/src/Scaler.Api/Scalet.Api/Scalet.Api.csproj",
+                "${workspaceFolder}/src/Scaler.Api/Scaler.Api.csproj",
                 "/property:GenerateFullPaths=true",
                 "/consoleloggerparameters:NoSummary"
             ],

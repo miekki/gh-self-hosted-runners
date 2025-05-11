@@ -1,6 +1,6 @@
 <Solution>
   <Folder Name="/src/" />
   <Folder Name="/src/Scaler.Api/">
-    <Project Path="src/Scaler.Api/Scalet.Api/Scalet.Api.csproj" />
+    <Project Path="Scaler.Api/Scaler.Api.csproj" />
   </Folder>
 </Solution>

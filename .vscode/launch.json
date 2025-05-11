@@ -9,9 +9,9 @@
             "type": "coreclr",
             "request": "launch",
             "preLaunchTask": "build",
-            "program": "${workspaceFolder}/src/Scaler.Api/Scalet.Api/bin/Debug/net9.0/Scalet.Api.dll",
+            "program": "${workspaceFolder}/src/Scaler.Api/bin/Debug/net9.0/Scaler.Api.dll",
             "args": [],
-            "cwd": "${workspaceFolder}/src/Scaler.Api/Scalet.Api",
+            "cwd": "${workspaceFolder}/src/Scaler.Api",
             "stopAtEntry": false,
             "serverReadyAction": {
                 "action": "openExternally",
