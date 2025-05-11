@@ -1,10 +1,28 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Add configuration sources in order of precedence
+builder.Configuration
+    // Base appsettings.json
+    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+    // Environment-specific appsettings.json
+    .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true)
+    // Environment variables - highest precedence
+    .AddEnvironmentVariables();
 
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+
+// Extract GitHub webhook secret from configuration
+var webhookSecret = builder.Configuration["GitHubSecrets:WebhookSecret"];
+if (string.IsNullOrEmpty(webhookSecret))
+{
+    Console.WriteLine("WARNING: GitHub webhook secret not configured. Webhook validation will be disabled.");
+}
 
 var app = builder.Build();
 
@@ -16,34 +34,59 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
 
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast = Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
-// ...existing code...
-
-// Add this class at the bottom of the file
-
-
-// Replace the existing webhook endpoint with this one
 app.MapPost("/webhook", async (HttpRequest request) =>
 {
     try
     {
+        // Enable buffering of the request body so it can be read multiple times
+        request.EnableBuffering();
+
+        // Validate GitHub webhook signature if secret is configured
+        if (!string.IsNullOrEmpty(webhookSecret))
+        {
+            // Check for signature header
+            if (!request.Headers.TryGetValue("X-Hub-Signature-256", out var signatureHeader))
+            {
+                return Results.Unauthorized();
+            }
+
+            // Extract signature value - should be in format "sha256=..."
+            var providedSignature = signatureHeader.ToString();
+            if (!providedSignature.StartsWith("sha256="))
+            {
+                return Results.Unauthorized();
+            }
+
+            // Read request body for validation
+            using var bodyReader = new StreamReader(request.Body, leaveOpen: true);
+            var rawBody = await bodyReader.ReadToEndAsync();
+
+            // Calculate HMAC-SHA256 hash
+            var secretBytes = Encoding.UTF8.GetBytes(webhookSecret);
+            using var hmac = new HMACSHA256(secretBytes);
+            var bodyBytes = Encoding.UTF8.GetBytes(rawBody);
+            var hash = hmac.ComputeHash(bodyBytes);
+
+            // Convert to hex string
+            var computedSignature = "sha256=" + Convert.ToHexString(hash).ToLower();
+
+            Console.WriteLine($"Provided Signature: {providedSignature}");
+            Console.WriteLine($"Computed Signature: {computedSignature}");
+
+            // Reset position to beginning of stream for later reading
+            request.Body.Position = 0;
+
+            // Compare signatures
+            if (providedSignature != computedSignature)
+            {
+                Console.WriteLine("Signature mismatch. Unauthorized request.");
+                return Results.Unauthorized();
+            }
+            Console.WriteLine("Signature match. Keep going.");
+        }
+
+        // If we reach here, the signature is valid or validation is disabled
         using var reader = new StreamReader(request.Body);
         var payload = await reader.ReadToEndAsync();
 
@@ -67,7 +110,10 @@ app.MapPost("/webhook", async (HttpRequest request) =>
         var formattedJson = JsonSerializer.Serialize(document.RootElement, jsonOptions);
         await File.WriteAllTextAsync(fileName, formattedJson);
 
+        Console.WriteLine($"Webhook payload saved to {fileName}");
+
         return Results.Ok(new { message = "Webhook received and saved", fileName });
+
         // var webhookData = JsonSerializer.Deserialize<WebhookPayload>(payload);
 
         // if (webhookData is null)
@@ -89,18 +135,8 @@ app.MapPost("/webhook", async (HttpRequest request) =>
     }
 });
 
-// ...existing code...
-// app.MapPost("/webhook", (string? name) =>
-// {
-//     return Results.Ok($"Hello {name}");
-// });
-
 app.Run();
 
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
 
 
-record WebhookPayload(string? Action, string? Repository);
+// record WebhookPayload(string? Action, string? Repository);
