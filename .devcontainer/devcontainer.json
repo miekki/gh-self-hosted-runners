@@ -7,8 +7,12 @@
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	"features": {
 		"ghcr.io/devcontainers/features/azure-cli:1": {
+			"installBicep": true,
 			"version": "latest",
 			"bicepVersion": "latest"
+		},
+		"ghcr.io/devcontainers/features/dotnet:2": {
+			"version": "latest"
 		}
 		// "ghcr.io/devcontainers/features/azure-cli:1": {}
 	},
@@ -27,7 +31,9 @@
 			"extensions": [
 				"ms-vscode.azurecli",
 				"ms-azuretools.vscode-azureresourcegroups",
-				"esbenp.prettier-vscode"
+				"esbenp.prettier-vscode",
+				"ms-dotnettools.csdevkit",
+				"humao.rest-client"
 			]
 		}
 	},
